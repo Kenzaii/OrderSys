@@ -6,6 +6,7 @@
     <title>Customer Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.0.7/css/boxicons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <style>
         /* Product Card Styles */
         .product-card {
@@ -224,7 +225,240 @@
             white-space: nowrap;
             color: #6c757d;
         }
+
+        /* Chat Widget Styles */
+        .chat-widget {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .chat-button {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transition: transform 0.2s, background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .chat-button:hover {
+            background-color: #0056b3;
+            transform: scale(1.1);
+        }
+
+        .chat-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            z-index: 998;
+        }
+
+        .chat-container {
+            display: none;
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            width: 70vw;
+            height: 70vh;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            z-index: 999;
+            overflow: hidden;
+            transition: transform 0.3s, opacity 0.3s;
+        }
+
+        .chat-container.active {
+            display: flex;
+            flex-direction: column;
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .chat-header h3 {
+            margin: 0;
+            font-size: 1.2rem;
+            color: #333;
+        }
+
+        .close-button {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 0 5px;
+            line-height: 1;
+        }
+
+        .close-button:hover {
+            color: #343a40;
+        }
+
+        .chat-iframe {
+            width: 100%;
+            height: calc(100% - 60px); /* Subtract header height */
+            border: none;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .chat-container {
+                width: 90vw;
+                height: 80vh;
+                bottom: 80px;
+                right: 5%;
+                left: 5%;
+            }
+
+            .chat-button {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+            }
+        }
     </style>
+    <script>
+        // Create a whitelist of errors we want to actually see
+        const errorWhitelist = [
+            'TypeError',
+            'ReferenceError',
+            'SyntaxError',
+            'RangeError'
+        ];
+
+        // Override Error Event
+        window.addEventListener('error', function(event) {
+            // Allow whitelisted errors through
+            if (errorWhitelist.some(errorType => event.error instanceof window[errorType])) {
+                return true;
+            }
+            
+            // Block all source map and module loading errors
+            if (event.filename && (
+                event.filename.includes('.map') ||
+                event.filename.includes('node_modules') ||
+                event.filename.includes('dist/') ||
+                event.filename.includes('npm/') ||
+                event.filename.includes('esm/') ||
+                event.filename.includes('lib/')
+            )) {
+                event.preventDefault();
+                return false;
+            }
+        }, true);
+
+        // Override Console
+        const originalConsole = {
+            error: console.error,
+            warn: console.warn,
+            log: console.log
+        };
+
+        // Custom error filter
+        function shouldSuppress(msg) {
+            if (typeof msg !== 'string') return false;
+            
+            const suppressPatterns = [
+                'source map',
+                '.map',
+                'PostHog',
+                'node_modules',
+                'ENOENT',
+                'Could not read',
+                '@adora-so',
+                '@rrweb',
+                'minimatch',
+                'backend-api',
+                'dist/',
+                'npm/',
+                'esm/',
+                'lib/',
+                'dompurify',
+                'marked',
+                'countries-and-timezones'
+            ];
+
+            return suppressPatterns.some(pattern => msg.includes(pattern));
+        }
+
+        // Override console methods
+        console.error = function(msg, ...args) {
+            if (!shouldSuppress(msg)) {
+                originalConsole.error.apply(console, [msg, ...args]);
+            }
+        };
+
+        console.warn = function(msg, ...args) {
+            if (!shouldSuppress(msg)) {
+                originalConsole.warn.apply(console, [msg, ...args]);
+            }
+        };
+
+        console.log = function(msg, ...args) {
+            if (!shouldSuppress(msg)) {
+                originalConsole.log.apply(console, [msg, ...args]);
+            }
+        };
+
+        // Suppress source map loading errors
+        window.addEventListener('error', function(e) {
+            if (e.filename && (
+                e.filename.includes('.map') ||
+                e.filename.includes('source map') ||
+                e.filename.includes('node_modules') ||
+                e.filename.includes('dist/') ||
+                e.filename.includes('rrweb') ||
+                e.filename.includes('minimatch') ||
+                e.filename.includes('backend-api') ||
+                e.filename.includes('fast-equals')
+            )) {
+                e.preventDefault();
+                return false;
+            }
+        }, true);
+
+        // Disable source map warnings for fetch
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options) {
+            if (typeof url === 'string' && (
+                url.endsWith('.map') ||
+                url.includes('sourcemap')
+            )) {
+                return Promise.resolve(new Response(''));
+            }
+            return originalFetch.apply(this, arguments);
+        };
+
+        // Prevent Intercom and PostHog initialization messages
+        window.intercomSettings = window.intercomSettings || {};
+        window.posthog = window.posthog || {
+            capture: function() {},
+            identify: function() {}
+        };
+    </script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -680,6 +914,51 @@
             // Insert the buttons container after the h2 title
             const title = orderHistorySection.querySelector('h2');
             title.parentNode.insertBefore(buttonsContainer, title.nextSibling);
+
+            const chatButton = document.getElementById('chatButton');
+            const chatContainer = document.getElementById('chatContainer');
+            const chatOverlay = document.getElementById('chatOverlay');
+            const closeButton = document.getElementById('closeButton');
+
+            // Function to show chat
+            function showChat() {
+                chatContainer.style.display = 'flex';
+                chatOverlay.style.display = 'block';
+                // Add a small delay before adding the active class for the animation
+                setTimeout(() => {
+                    chatContainer.classList.add('active');
+                }, 10);
+            }
+
+            // Function to hide chat
+            function hideChat() {
+                chatContainer.classList.remove('active');
+                chatOverlay.style.display = 'none';
+                // Add a small delay before hiding the container
+                setTimeout(() => {
+                    chatContainer.style.display = 'none';
+                }, 300);
+            }
+
+            // Event listeners
+            chatButton.addEventListener('click', showChat);
+            closeButton.addEventListener('click', hideChat);
+            chatOverlay.addEventListener('click', hideChat);
+
+            // Close chat when clicking outside
+            document.addEventListener('click', function(event) {
+                const isClickInsideChat = chatContainer.contains(event.target);
+                const isClickOnButton = chatButton.contains(event.target);
+                
+                if (!isClickInsideChat && !isClickOnButton && chatContainer.classList.contains('active')) {
+                    hideChat();
+                }
+            });
+
+            // Prevent clicks inside the chat container from closing it
+            chatContainer.addEventListener('click', function(event) {
+                event.stopPropagation();
+            });
         });
 
         // Add the export function
@@ -767,6 +1046,25 @@
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Add this right before the closing </body> tag -->
+    <div class="chat-widget">
+        <button id="chatButton" class="chat-button">
+            <i class="fas fa-comments"></i>
+        </button>
+        <div id="chatOverlay" class="chat-overlay"></div>
+        <div id="chatContainer" class="chat-container">
+            <div class="chat-header">
+                <h3>Chat Support</h3>
+                <button id="closeButton" class="close-button">&times;</button>
+            </div>
+            <iframe 
+                class="chat-iframe"
+                src="https://app.relevanceai.com/agents/f1db6c/f099903e0711-4d99-8a1c-6c65b95a8189/772c3d36-ddc1-4f56-8383-4e023aedf1ef/share"
+                frameborder="0">
+            </iframe>
         </div>
     </div>
 </body>
