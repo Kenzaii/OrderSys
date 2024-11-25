@@ -175,6 +175,55 @@
             height: 1rem;
             margin-right: 0.5rem;
         }
+
+        /* Order History Table Styles */
+        .table {
+            background-color: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .table thead th {
+            background-color: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            padding: 1rem;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .table tbody td {
+            padding: 1rem;
+            vertical-align: middle;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        /* Products column formatting */
+        .table td:nth-child(2) {
+            max-width: 300px;
+            white-space: pre-line;
+            line-height: 1.4;
+        }
+
+        /* Price column formatting */
+        .table td:nth-child(3) {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        /* Date column formatting */
+        .table td:nth-child(4) {
+            white-space: nowrap;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -370,12 +419,26 @@
             // Define CSV headers
             const headers = ['Order ID', 'Products Ordered', 'Total Price', 'Order Date'];
             
+            // Sort orders by date in descending order
+            const sortedOrders = [...orders].sort((a, b) => {
+                const dateA = new Date(a.fields['Order Date'] || '');
+                const dateB = new Date(b.fields['Order Date'] || '');
+                return dateB - dateA;
+            });
+            
             // Convert orders to CSV rows
-            const rows = orders.map(order => [
+            const rows = sortedOrders.map(order => [
                 order.fields['Order ID'] || '',
-                `"${(order.fields['Products Ordered'] || '').replace(/"/g, '""')}"`, // Escape quotes in products
+                `"${(order.fields['Products Ordered'] || '').replace(/"/g, '""')}"`,
                 order.fields['Total Price'] ? `$${order.fields['Total Price'].toFixed(2)}` : '$0.00',
-                order.fields['Order Date'] ? new Date(order.fields['Order Date']).toLocaleDateString() : ''
+                order.fields['Order Date'] ? 
+                    new Date(order.fields['Order Date']).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }) : ''
             ]);
             
             // Combine headers and rows
@@ -401,13 +464,111 @@
             }
         }
 
-        // Load Order History Function
+        // Add this helper function to format date and time in Singapore timezone
+        function getSingaporeDateTime() {
+            const options = {
+                timeZone: 'Asia/Singapore',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            };
+
+            const singaporeDate = new Date().toLocaleString('en-US', options);
+            const [datePart, timePart] = singaporeDate.split(', ');
+            const [month, day, year] = datePart.split('/');
+            
+            // Format as YYYY-MM-DD HH:mm:ss
+            return `${year}-${month}-${day} ${timePart}`;
+        }
+
+        // Update the place order function with the correct field name
+        document.getElementById('placeOrderBtn').addEventListener('click', async () => {
+            if (cart.length === 0) {
+                alert('Please add items to your cart first');
+                return;
+            }
+
+            try {
+                // Show loading state
+                const button = document.getElementById('placeOrderBtn');
+                button.disabled = true;
+                button.innerHTML = `
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    Processing Order...
+                `;
+
+                // Get Singapore date and time
+                const orderDateTime = getSingaporeDateTime();
+
+                const orderData = {
+                    records: [{
+                        fields: {
+                            "Customer ID": user.CustomerID,
+                            "Products Ordered": cart.map(item => `${item.name} (Quantity: ${item.quantity})`).join('\n'),
+                            "Total Price": parseFloat(cart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)),
+                            "Order Date": orderDateTime, // Use the full date time string
+                            "Order ID": `ORDER-${Date.now()}`
+                        }
+                    }]
+                };
+
+                console.log('Sending order data:', orderData);
+
+                const response = await fetch(`https://api.airtable.com/v0/${BASE_ID}/Orders`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${API_KEY}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderData)
+                });
+
+                const result = await response.json();
+                console.log('Order creation response:', result);
+
+                if (!response.ok) {
+                    throw new Error(result.error?.message || 'Failed to create order');
+                }
+
+                // Clear cart and update UI
+                cart = [];
+                updateOrderSummary();
+                
+                // Show success message
+                alert('Order placed successfully!');
+
+                // Switch to order history tab and refresh it
+                const orderHistoryTab = document.querySelector('[data-section="orders"]');
+                if (orderHistoryTab) {
+                    // First switch to the orders tab
+                    orderHistoryTab.click();
+                    
+                    // Then reload the order history after a short delay
+                    setTimeout(() => {
+                        loadOrderHistory();
+                    }, 1000); // 1 second delay to ensure the order is registered in Airtable
+                }
+
+            } catch (error) {
+                console.error('Error placing order:', error);
+                alert(`Error placing order: ${error.message}`);
+            } finally {
+                // Reset button state
+                const button = document.getElementById('placeOrderBtn');
+                button.disabled = false;
+                button.innerHTML = 'Place Order';
+            }
+        });
+
+        // Update the loadOrderHistory function to handle the combined date time field
         async function loadOrderHistory() {
             try {
-                console.log('Loading orders for CustomerID:', user.CustomerID);
-
                 const response = await fetch(
-                    `https://api.airtable.com/v0/${BASE_ID}/Orders?filterByFormula={Customer ID}='${user.CustomerID}'&sort%5B0%5D%5Bfield%5D=Order+Date&sort%5B0%5D%5Bdirection%5D=desc`,
+                    `https://api.airtable.com/v0/${BASE_ID}/Orders?filterByFormula={Customer ID}='${user.CustomerID}'&sort%5B0%5D%5Bfield%5D=Order%20Date&sort%5B0%5D%5Bdirection%5D=desc`,
                     {
                         headers: {
                             'Authorization': `Bearer ${API_KEY}`
@@ -416,29 +577,44 @@
                 );
 
                 const data = await response.json();
-                console.log('Orders data received:', data);
-
-                // Store the current orders
                 currentOrders = data.records || [];
 
                 const tbody = document.getElementById('orderHistoryList');
                 
                 if (currentOrders.length > 0) {
-                    tbody.innerHTML = currentOrders.map(order => {
-                        const orderDate = order.fields['Order Date'] ? 
-                            new Date(order.fields['Order Date']).toLocaleDateString() : 'N/A';
-                        
-                        return `
-                            <tr>
-                                <td>${order.fields['Order ID'] || 'N/A'}</td>
-                                <td>${order.fields['Products Ordered'] || 'N/A'}</td>
-                                <td>$${order.fields['Total Price'] ? order.fields['Total Price'].toFixed(2) : '0.00'}</td>
-                                <td>${orderDate}</td>
-                            </tr>
-                        `;
-                    }).join('');
+                    tbody.innerHTML = currentOrders
+                        .sort((a, b) => {
+                            const dateA = new Date(a.fields['Order Date'] || '');
+                            const dateB = new Date(b.fields['Order Date'] || '');
+                            return dateB - dateA;
+                        })
+                        .map(order => {
+                            // Format the date and time in Singapore timezone
+                            const orderDate = order.fields['Order Date'] ? 
+                                new Date(order.fields['Order Date']).toLocaleString('en-US', {
+                                    timeZone: 'Asia/Singapore',
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    hour12: true
+                                }) : 'N/A';
+                            
+                            return `
+                                <tr>
+                                    <td>${order.fields['Order ID'] || 'N/A'}</td>
+                                    <td>
+                                        <div style="white-space: pre-line">
+                                            ${order.fields['Products Ordered'] || 'N/A'}
+                                        </div>
+                                    </td>
+                                    <td>$${order.fields['Total Price'] ? order.fields['Total Price'].toFixed(2) : '0.00'}</td>
+                                    <td>${orderDate}</td>
+                                </tr>
+                            `;
+                        }).join('');
 
-                    // Show export button if there are orders
                     document.getElementById('exportCSVBtn').style.display = 'inline-block';
                 } else {
                     tbody.innerHTML = `
@@ -446,7 +622,6 @@
                             <td colspan="4" class="text-center">No orders found</td>
                         </tr>
                     `;
-                    // Hide export button if no orders
                     document.getElementById('exportCSVBtn').style.display = 'none';
                 }
             } catch (error) {
@@ -475,82 +650,6 @@
                         loadOrderHistory();
                     }
                 });
-            });
-
-            // Place Order Button
-            document.getElementById('placeOrderBtn').addEventListener('click', async () => {
-                if (cart.length === 0) {
-                    alert('Please add items to your cart first');
-                    return;
-                }
-
-                try {
-                    // Show loading state
-                    const button = document.getElementById('placeOrderBtn');
-                    button.disabled = true;
-                    button.innerHTML = `
-                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                        Processing Order...
-                    `;
-
-                    const orderData = {
-                        records: [{
-                            fields: {
-                                "Customer ID": user.CustomerID,
-                                "Products Ordered": cart.map(item => `${item.name} (Quantity: ${item.quantity})`).join('\n'),
-                                "Total Price": parseFloat(cart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)),
-                                "Order Date": new Date().toISOString().split('T')[0],
-                                "Order ID": `ORDER-${Date.now()}`
-                            }
-                        }]
-                    };
-
-                    console.log('Sending order data:', orderData);
-
-                    const response = await fetch(`https://api.airtable.com/v0/${BASE_ID}/Orders`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${API_KEY}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(orderData)
-                    });
-
-                    const result = await response.json();
-                    console.log('Order creation response:', result);
-
-                    if (!response.ok) {
-                        throw new Error(result.error?.message || 'Failed to create order');
-                    }
-
-                    // Clear cart and update UI
-                    cart = [];
-                    updateOrderSummary();
-                    
-                    // Show success message
-                    alert('Order placed successfully!');
-
-                    // Switch to order history tab and refresh it
-                    const orderHistoryTab = document.querySelector('[data-section="orders"]');
-                    if (orderHistoryTab) {
-                        // First switch to the orders tab
-                        orderHistoryTab.click();
-                        
-                        // Then reload the order history after a short delay
-                        setTimeout(() => {
-                            loadOrderHistory();
-                        }, 1000); // 1 second delay to ensure the order is registered in Airtable
-                    }
-
-                } catch (error) {
-                    console.error('Error placing order:', error);
-                    alert(`Error placing order: ${error.message}`);
-                } finally {
-                    // Reset button state
-                    const button = document.getElementById('placeOrderBtn');
-                    button.disabled = false;
-                    button.innerHTML = 'Place Order';
-                }
             });
 
             // Logout Button
